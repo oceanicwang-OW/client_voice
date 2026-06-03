@@ -9,6 +9,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
@@ -57,6 +58,19 @@ bool TestMechanism() {
     ok &= Check(silent, "buffer cleared (silence) after Flush");
   }
 
+  // Playback state must remain true after the final queued samples have just
+  // been handed to the output device. Otherwise barge-in can miss the audible
+  // tail of the response.
+  {
+    voice::AudioPlayback pb;
+    voice::Pcm16 audio(2000, 1000);  // > prebuffer.
+    pb.Enqueue(audio);
+    std::vector<int16_t> out(audio.size());
+    pb.fill_output_internal(out.data(), out.size());
+    ok &= Check(pb.IsPlaying(), "playback remains active after device pull");
+    pb.Flush();
+  }
+
   // LoopbackTransport.CancelPendingAudio: 丢音频、留文本。
   {
     std::atomic<int> audio_cnt{0}, text_cnt{0};
@@ -72,6 +86,37 @@ bool TestMechanism() {
     tr.Stop();
     ok &= Check(audio_cnt.load() == 0, "pending audio canceled");
     ok &= Check(text_cnt.load() == 1, "text preserved after cancel");
+  }
+
+  // Delay changes should affect newly queued items immediately. A later item
+  // with an earlier due time must not be blocked behind an older slow item.
+  {
+    std::mutex mu;
+    std::vector<std::string> seen;
+    voice::LoopbackTransport tr;
+    tr.on_text = [&](const std::string& text) {
+      std::lock_guard<std::mutex> lk(mu);
+      seen.push_back(text);
+    };
+    tr.SetDelayMs(200);
+    tr.SendText("slow");
+    tr.SetDelayMs(0);
+    tr.SendText("fast");
+    tr.Start();
+
+    const auto deadline =
+        std::chrono::steady_clock::now() + std::chrono::milliseconds(100);
+    while (std::chrono::steady_clock::now() < deadline) {
+      {
+        std::lock_guard<std::mutex> lk(mu);
+        if (!seen.empty()) break;
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    tr.Stop();
+    std::lock_guard<std::mutex> lk(mu);
+    ok &= Check(!seen.empty() && seen.front() == "fast",
+                "loopback returns earliest due item first");
   }
   return ok;
 }

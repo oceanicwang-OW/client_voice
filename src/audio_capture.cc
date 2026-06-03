@@ -57,7 +57,11 @@ bool AudioCapture::Start() {
   cfg.pUserData = this;
   if (ma_device_init(nullptr, &cfg, &impl_->device) != MA_SUCCESS) return false;
   impl_->device_inited = true;
-  if (ma_device_start(&impl_->device) != MA_SUCCESS) return false;
+  if (ma_device_start(&impl_->device) != MA_SUCCESS) {
+    ma_device_uninit(&impl_->device);
+    impl_->device_inited = false;
+    return false;
+  }
   running_.store(true);
   return true;
 #else
@@ -67,7 +71,7 @@ bool AudioCapture::Start() {
 }
 
 void AudioCapture::Stop() {
-  if (!running_.exchange(false)) return;
+  running_.store(false);
 #if defined(VOICE_HAVE_MINIAUDIO)
   if (impl_->device_inited) {
     ma_device_uninit(&impl_->device);

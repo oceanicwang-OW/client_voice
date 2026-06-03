@@ -1,5 +1,6 @@
 #include "transport.h"
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -31,7 +32,17 @@ struct LoopbackTransport::Impl {
   std::atomic<int> delay_ms{300};
 
   void Run(LoopbackTransport* owner);
+  void PushLocked(Item item);
 };
+
+void LoopbackTransport::Impl::PushLocked(Item item) {
+  auto pos = std::upper_bound(
+      queue.begin(), queue.end(), item.due,
+      [](const Clock::time_point& due, const Item& queued) {
+        return due < queued.due;
+      });
+  queue.insert(pos, std::move(item));
+}
 
 void LoopbackTransport::Impl::Run(LoopbackTransport* owner) {
   std::unique_lock<std::mutex> lk(mu);
@@ -92,7 +103,7 @@ void LoopbackTransport::SendAudio(const OpusPacket& pkt) {
   const auto due = Clock::now() + std::chrono::milliseconds(impl_->delay_ms.load());
   {
     std::lock_guard<std::mutex> lk(impl_->mu);
-    impl_->queue.push_back({due, pkt, /*is_audio=*/true});
+    impl_->PushLocked({due, pkt, /*is_audio=*/true});
   }
   impl_->cv.notify_all();
 }
@@ -103,7 +114,7 @@ void LoopbackTransport::SendText(const std::string& text) {
   const auto due = Clock::now() + std::chrono::milliseconds(impl_->delay_ms.load());
   {
     std::lock_guard<std::mutex> lk(impl_->mu);
-    impl_->queue.push_back({due, text, /*is_audio=*/false});
+    impl_->PushLocked({due, text, /*is_audio=*/false});
   }
   impl_->cv.notify_all();
 }

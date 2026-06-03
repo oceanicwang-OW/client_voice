@@ -1,12 +1,11 @@
 #include "audio_playback.h"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
-#include <deque>
-#include <mutex>
-#include <vector>
 
 #include "audio_constants.h"
+#include "ring_buffer.h"
 
 // 注意: MINIAUDIO_IMPLEMENTATION 已在 audio_capture.cc 定义，这里只包含声明。
 #if __has_include("miniaudio.h")
@@ -19,19 +18,61 @@ namespace voice {
 namespace {
 constexpr size_t kPrebufferSamples =
     static_cast<size_t>(kSampleRate) * kJitterPrebufferMsMax / 1000;
+constexpr size_t kPlaybackBufferSamples =
+    static_cast<size_t>(kSampleRate) * 10;  // 10 seconds of 16 kHz mono PCM.
 }  // namespace
 
 struct AudioPlayback::Impl {
-  std::mutex mu;
-  std::deque<int16_t> jitter;     // jitter buffer (解码后样本)。
-  bool started_output = false;    // 是否已攒够预缓冲起播。
-  IAudioProcessor* render_sink = nullptr;
-  std::vector<int16_t> ref_frame;  // 累积满 10ms 再喂 AEC 参考。
+  SpscRingBuffer<int16_t> jitter{kPlaybackBufferSamples};
+  std::atomic<bool> started_output{false};
+  std::atomic<bool> flush_requested{false};
+  std::atomic<size_t> audible_tail_samples{0};
+  std::atomic<IAudioProcessor*> render_sink{nullptr};
+  std::array<int16_t, kApmFrameSamples> ref_frame{};
+  size_t ref_fill = 0;
 #if defined(VOICE_HAVE_MINIAUDIO)
   ma_device device{};
   bool device_inited = false;
 #endif
+
+  void ProcessFlushIfRequested();
+  void FeedRenderRef(int16_t sample);
+  void MarkDeviceBufferQueued(size_t frame_count);
+  void DecayAudibleTail(size_t frame_count);
 };
+
+void AudioPlayback::Impl::ProcessFlushIfRequested() {
+  if (!flush_requested.exchange(false)) return;
+  jitter.DiscardReadable();
+  started_output.store(false);
+  audible_tail_samples.store(0);
+  ref_fill = 0;
+}
+
+void AudioPlayback::Impl::FeedRenderRef(int16_t sample) {
+  IAudioProcessor* sink = render_sink.load(std::memory_order_acquire);
+  if (!sink) return;
+  ref_frame[ref_fill++] = sample;
+  if (ref_fill == ref_frame.size()) {
+    sink->ProcessRenderRef(ref_frame.data());
+    ref_fill = 0;
+  }
+}
+
+void AudioPlayback::Impl::MarkDeviceBufferQueued(size_t frame_count) {
+  audible_tail_samples.store(frame_count, std::memory_order_release);
+}
+
+void AudioPlayback::Impl::DecayAudibleTail(size_t frame_count) {
+  size_t tail = audible_tail_samples.load(std::memory_order_acquire);
+  while (tail > 0) {
+    const size_t next = tail > frame_count ? tail - frame_count : 0;
+    if (audible_tail_samples.compare_exchange_weak(
+            tail, next, std::memory_order_acq_rel, std::memory_order_acquire)) {
+      break;
+    }
+  }
+}
 
 #if defined(VOICE_HAVE_MINIAUDIO)
 namespace {
@@ -57,7 +98,12 @@ bool AudioPlayback::Start() {
   cfg.pUserData = this;
   if (ma_device_init(nullptr, &cfg, &impl_->device) != MA_SUCCESS) return false;
   impl_->device_inited = true;
-  return ma_device_start(&impl_->device) == MA_SUCCESS;
+  if (ma_device_start(&impl_->device) != MA_SUCCESS) {
+    ma_device_uninit(&impl_->device);
+    impl_->device_inited = false;
+    return false;
+  }
+  return true;
 #else
   // TODO(M2): 集成 miniaudio.h 后启用真实播放。
   return false;
@@ -75,54 +121,51 @@ void AudioPlayback::Stop() {
 }
 
 void AudioPlayback::Enqueue(const Pcm16& pcm) {
-  std::lock_guard<std::mutex> lk(impl_->mu);
-  impl_->jitter.insert(impl_->jitter.end(), pcm.begin(), pcm.end());
+  impl_->jitter.Write(pcm.data(), pcm.size());
 }
 
 void AudioPlayback::Flush() {
-  std::lock_guard<std::mutex> lk(impl_->mu);
-  impl_->jitter.clear();
-  impl_->started_output = false;
+  impl_->flush_requested.store(true, std::memory_order_release);
+  impl_->started_output.store(false, std::memory_order_release);
+  impl_->audible_tail_samples.store(0, std::memory_order_release);
   playing_.store(false);
 }
 
 void AudioPlayback::SetRenderRefSink(IAudioProcessor* apm) {
-  std::lock_guard<std::mutex> lk(impl_->mu);
-  impl_->render_sink = apm;
+  impl_->render_sink.store(apm, std::memory_order_release);
 }
 
 void AudioPlayback::fill_output_internal(int16_t* output, size_t frame_count) {
-  std::lock_guard<std::mutex> lk(impl_->mu);
+  impl_->ProcessFlushIfRequested();
   // 攒够预缓冲再起播，避免欠载 (PRD §8 jitter buffer)。
-  if (!impl_->started_output) {
-    if (impl_->jitter.size() < kPrebufferSamples) {
+  if (!impl_->started_output.load(std::memory_order_acquire)) {
+    if (impl_->jitter.Size() < kPrebufferSamples) {
       std::fill(output, output + frame_count, int16_t{0});
+      impl_->DecayAudibleTail(frame_count);
+      playing_.store(impl_->audible_tail_samples.load(std::memory_order_acquire) > 0);
       return;
     }
-    impl_->started_output = true;
+    impl_->started_output.store(true, std::memory_order_release);
     playing_.store(true);
   }
 
+  size_t samples_read = 0;
   for (size_t i = 0; i < frame_count; ++i) {
     int16_t s = 0;
-    if (!impl_->jitter.empty()) {
-      s = impl_->jitter.front();
-      impl_->jitter.pop_front();
-    }
+    samples_read += impl_->jitter.Read(&s, 1);
     output[i] = s;
-    // 累积 10ms (160 samples) 后喂给 AEC 参考 (PRD §15.2)。
-    if (impl_->render_sink) {
-      impl_->ref_frame.push_back(s);
-      if (impl_->ref_frame.size() == kApmFrameSamples) {
-        impl_->render_sink->ProcessRenderRef(impl_->ref_frame.data());
-        impl_->ref_frame.clear();
-      }
-    }
+    impl_->FeedRenderRef(s);
   }
 
-  if (impl_->jitter.empty()) {
-    impl_->started_output = false;
-    playing_.store(false);
+  if (samples_read > 0) {
+    impl_->MarkDeviceBufferQueued(frame_count);
+    playing_.store(true);
+  } else {
+    impl_->DecayAudibleTail(frame_count);
+    playing_.store(impl_->audible_tail_samples.load(std::memory_order_acquire) > 0);
+  }
+  if (impl_->jitter.Size() == 0) {
+    impl_->started_output.store(false, std::memory_order_release);
   }
 }
 

@@ -36,7 +36,15 @@ bool ChatController::Init() {
   playback_ = std::make_unique<AudioPlayback>();
 
   if (!codec_->Init()) return false;
-  vad_->Load("models/silero_vad.onnx");  // 能量 VAD 下忽略路径。
+  const bool vad_loaded = vad_->Load("models/silero_vad.onnx");
+#if defined(VOICE_ENABLE_SILERO)
+  if (!vad_loaded) {
+    log_.Push(MessageKind::kLog, "VAD: failed to load Silero model");
+    return false;
+  }
+#else
+  (void)vad_loaded;
+#endif
   playback_->SetRenderRefSink(apm_.get());
 
   // 下行: 收到回传音频 -> 解码 -> 入播放队列。
@@ -52,7 +60,9 @@ bool ChatController::Init() {
   };
 
   transport_->Start();
-  playback_->Start();
+  if (!playback_->Start()) {
+    log_.Push(MessageKind::kLog, "Playback: failed to start (miniaudio?)");
+  }
   ApplySettings();
   return true;
 }

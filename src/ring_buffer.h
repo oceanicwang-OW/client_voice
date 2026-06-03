@@ -55,6 +55,13 @@ class SpscRingBuffer {
     tail_.store(0, std::memory_order_relaxed);
   }
 
+  // Consumer-side discard: drops all samples visible to the consumer without
+  // moving the producer head. Safe for callback-side flush of queued playback.
+  void DiscardReadable() {
+    tail_.store(head_.load(std::memory_order_acquire),
+                std::memory_order_release);
+  }
+
  private:
   size_t Available(size_t head, size_t tail) const {
     return (head + capacity_ - tail) % capacity_;
