@@ -89,3 +89,12 @@ if(VOICE_ENABLE_SILERO)
             $<TARGET_FILE:onnxruntime> $<TARGET_FILE_DIR:silero_vad_smoke_test>)
     add_test(NAME m4_silero_smoke COMMAND silero_vad_smoke_test)
 endif()
+
+# 所有用例统一从源码根运行: ChatController 按相对路径 "models/silero_vad.onnx"
+# 加载模型, Silero 构建下 Init() 找不到模型会 return false (上游严格化)。从源码
+# 根运行即可命中 models/; onnxruntime.dll 已随 exe 部署到 bin/, 不受工作目录影响。
+get_property(_voice_tests DIRECTORY PROPERTY TESTS)
+if(_voice_tests)
+    set_tests_properties(${_voice_tests} PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+endif()
