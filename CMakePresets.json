@@ -43,14 +43,25 @@
       }
     },
     {
+      "name": "tts",
+      "displayName": "VS2019 x64 — + Opus + TTS (/say)",
+      "description": "Windows SAPI5 文字转语音; 无额外依赖/无模型",
+      "inherits": "vs2019-base",
+      "cacheVariables": {
+        "VOICE_ENABLE_OPUS": "ON",
+        "VOICE_ENABLE_TTS": "ON"
+      }
+    },
+    {
       "name": "all",
-      "displayName": "VS2019 x64 — 全功能 (Opus + Silero + WebRTC + GUI)",
+      "displayName": "VS2019 x64 — 全功能 (Opus + Silero + WebRTC + TTS + GUI)",
       "description": "完整产品; 需 ONNX Runtime + Silero 模型 + WebRTC 预编译产物",
       "inherits": "vs2019-base",
       "cacheVariables": {
         "VOICE_ENABLE_OPUS": "ON",
         "VOICE_ENABLE_SILERO": "ON",
-        "VOICE_ENABLE_WEBRTC": "ON"
+        "VOICE_ENABLE_WEBRTC": "ON",
+        "VOICE_ENABLE_TTS": "ON"
       }
     },
     {
@@ -72,6 +83,7 @@
     { "name": "opus", "configurePreset": "opus", "configuration": "Release" },
     { "name": "silero", "configurePreset": "silero", "configuration": "Release" },
     { "name": "webrtc", "configurePreset": "webrtc", "configuration": "Release" },
+    { "name": "tts", "configurePreset": "tts", "configuration": "Release" },
     { "name": "all", "configurePreset": "all", "configuration": "Release" },
     { "name": "ci-headless", "configurePreset": "ci-headless" }
   ],

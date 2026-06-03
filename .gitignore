@@ -38,3 +38,4 @@ third_party/webrtc-apm/*.zip
 *.log
 .DS_Store
 Thumbs.db
+imgui.ini

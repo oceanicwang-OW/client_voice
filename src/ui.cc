@@ -172,7 +172,8 @@ int RunUi(ChatController* controller) {
 // 便于阶段一在未集成 ImGui 时验证文本闭环 (AC-1) 与链路。
 int RunUi(ChatController* controller) {
   std::printf(
-      "[headless] Dear ImGui 未集成。输入文本回车发送, /mic 开关麦, /quit 退出。\n");
+      "[headless] Dear ImGui 未集成。输入文本回车发送, /say <文字> 朗读, "
+      "/mic 开关麦, /quit 退出。\n");
   std::string line;
   bool running = true;
   while (running) {
@@ -185,6 +186,8 @@ int RunUi(ChatController* controller) {
       running = false;
     } else if (line == "/mic") {
       controller->OnMicToggle(!controller->ui_state().mic_on.load());
+    } else if (line.rfind("/say ", 0) == 0) {
+      controller->OnSpeak(line.substr(5));
     } else if (!line.empty()) {
       controller->OnTextSubmit(line);
     }

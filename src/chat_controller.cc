@@ -34,8 +34,12 @@ bool ChatController::Init() {
   codec_ = std::make_unique<OpusCodec>();
   transport_ = std::make_unique<LoopbackTransport>();
   playback_ = std::make_unique<AudioPlayback>();
+  tts_ = CreateTts();
 
   if (!codec_->Init()) return false;
+  if (!tts_->Init()) {
+    log_.Push(MessageKind::kLog, "TTS: init 失败, /say 将不可用");
+  }
   const bool vad_loaded = vad_->Load("models/silero_vad.onnx");
 #if defined(VOICE_ENABLE_SILERO)
   if (!vad_loaded) {
@@ -80,6 +84,30 @@ void ChatController::OnTextSubmit(const std::string& text) {
   transport_->SetDelayMs(settings_.loopback_delay_ms.load());
   log_.Push(MessageKind::kMe, text);
   transport_->SendText(text);
+}
+
+void ChatController::OnSpeak(const std::string& text) {
+  if (text.empty()) return;
+  // 与文本路径一致: 实时下发 Loopback 延迟 (AC-9)。
+  transport_->SetDelayMs(settings_.loopback_delay_ms.load());
+  log_.Push(MessageKind::kMe, "/say " + text);
+
+  Pcm16 pcm = tts_->Synthesize(text);  // UTF-8 文本 -> 16k/mono/int16。
+  if (pcm.empty()) {
+    log_.Push(MessageKind::kLog,
+              "TTS: 合成失败或未启用 (需 -DVOICE_ENABLE_TTS=ON 且系统有语音)");
+    return;
+  }
+
+  // 补零到 Opus 帧长整数倍, 确保整段都被 EmitFrames 发出 (无残余留缓冲)。
+  const size_t rem = pcm.size() % kOpusFrameSamples;
+  if (rem != 0) pcm.resize(pcm.size() + (kOpusFrameSamples - rem), 0);
+
+  // EmitFrames 会消费(erase) buffer, 故先算时长。
+  const int ms = static_cast<int>(pcm.size() * 1000 / kSampleRate);
+  EmitFrames(pcm);  // 切 20ms -> Opus 编码 -> 下行 Loopback 回传 -> 播放。
+  log_.Push(MessageKind::kVoice,
+            std::to_string(ms / 1000.0).substr(0, 4) + "s TTS played");
 }
 
 void ChatController::OnMicToggle(bool on) {

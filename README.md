@@ -46,6 +46,7 @@ ctest --preset all                          # 跑验收用例
 | `opus` | + Opus | |
 | `silero` | + Opus + Silero VAD | 需 ONNX Runtime（自动下载）+ 模型 |
 | `webrtc` | + Opus + WebRTC APM | 需 `third_party/webrtc-apm/` 预编译产物 |
+| `tts` | + Opus + SAPI5 TTS | Windows 自带语音，无额外依赖/无模型 |
 | `all` | 全功能 | 完整产品 |
 | `ci-headless` | Ninja 无 GUI，仅测试 | 在 VS 开发者命令行中运行，供 CI |
 
@@ -58,6 +59,7 @@ ctest --preset all                          # 跑验收用例
 | `VOICE_ENABLE_OPUS` | OFF | 启用 libopus（关闭时 Loopback 传 PCM 直通） |
 | `VOICE_ENABLE_WEBRTC` | OFF | 启用 WebRTC APM（关闭时用直通 APM，**务必戴耳机**） |
 | `VOICE_ENABLE_SILERO` | OFF | 启用 Silero VAD（关闭时用能量 VAD 占位） |
+| `VOICE_ENABLE_TTS` | OFF | 启用 Windows SAPI5 文字转语音（`/say` 命令；关闭/非 Windows 时为 stub） |
 
 ```powershell
 cmake -G "Visual Studio 16 2019" -A x64 -B build -DVOICE_ENABLE_OPUS=ON .
@@ -102,6 +104,10 @@ cmake -G "Visual Studio 16 2019" -A x64 -B build -DVOICE_ENABLE_OPUS=ON .
   10ms 帧、render/capture 对齐），`-DVOICE_ENABLE_WEBRTC=ON` 启用，ChatController
   自动切换。用 M124 预编译产物（见 `third_party/webrtc-apm/`）链入 MSVC，避开
   Meson/clang 构建难题；`ac8_aec` 实测回授残余 **~0.7%（≈ −43dB）**。
+- ✅ **文字转语音（`/say`）**：`-DVOICE_ENABLE_TTS=ON`（或 `--preset tts`）启用
+  Windows SAPI5。控制台输入 `/say <文字>`：文本→SAPI 合成 16k/mono/int16 PCM→
+  走下行（Opus/直通编码→Loopback 延迟回传→解码→jitter→播放）。无额外依赖/无模型；
+  中文需系统装中文语音包。`tts_synthesize_smoke` 验证合成返回非空 PCM。
 - ✅ **M7 打磨**（AC-9/AC-10）：参数实时下发（含闭麦下文本路径的 Loopback 延迟），
   `ac9_param_realtime` 证明改句末静音阈值即改变断句；`src/` 通过规范自查
   （≤100 列、无 Tab、无尾空白、统一 `#pragma once`）。
