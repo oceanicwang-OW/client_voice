@@ -1,0 +1,109 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": { "major": 3, "minor": 21, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "vs2019-base",
+      "hidden": true,
+      "generator": "Visual Studio 16 2019",
+      "architecture": "x64",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": { "VOICE_BUILD_TESTS": "ON" }
+    },
+    {
+      "name": "default",
+      "displayName": "VS2019 x64 — 纯净 (能量 VAD + 直通 APM + GUI)",
+      "description": "阶段一基线: 文本/语音闭环, 无第三方重依赖",
+      "inherits": "vs2019-base"
+    },
+    {
+      "name": "opus",
+      "displayName": "VS2019 x64 — + Opus (M3)",
+      "inherits": "vs2019-base",
+      "cacheVariables": { "VOICE_ENABLE_OPUS": "ON" }
+    },
+    {
+      "name": "silero",
+      "displayName": "VS2019 x64 — + Opus + Silero VAD (M4)",
+      "description": "需 ONNX Runtime (CMake 自动下载) 与 models/silero_vad.onnx",
+      "inherits": "vs2019-base",
+      "cacheVariables": {
+        "VOICE_ENABLE_OPUS": "ON",
+        "VOICE_ENABLE_SILERO": "ON"
+      }
+    },
+    {
+      "name": "webrtc",
+      "displayName": "VS2019 x64 — + Opus + WebRTC APM (M6)",
+      "description": "需 third_party/webrtc-apm/ 预编译产物 (见该目录 fetch 脚本)",
+      "inherits": "vs2019-base",
+      "cacheVariables": {
+        "VOICE_ENABLE_OPUS": "ON",
+        "VOICE_ENABLE_WEBRTC": "ON"
+      }
+    },
+    {
+      "name": "all",
+      "displayName": "VS2019 x64 — 全功能 (Opus + Silero + WebRTC + GUI)",
+      "description": "完整产品; 需 ONNX Runtime + Silero 模型 + WebRTC 预编译产物",
+      "inherits": "vs2019-base",
+      "cacheVariables": {
+        "VOICE_ENABLE_OPUS": "ON",
+        "VOICE_ENABLE_SILERO": "ON",
+        "VOICE_ENABLE_WEBRTC": "ON"
+      }
+    },
+    {
+      "name": "ci-headless",
+      "displayName": "Ninja headless (无 GUI, 仅自动化测试)",
+      "description": "需在 VS 开发者命令行 (vcvars) 中运行, 供 CI/快速验收",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "VOICE_ENABLE_IMGUI": "OFF",
+        "VOICE_ENABLE_OPUS": "ON",
+        "VOICE_BUILD_TESTS": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    { "name": "default", "configurePreset": "default", "configuration": "Release" },
+    { "name": "opus", "configurePreset": "opus", "configuration": "Release" },
+    { "name": "silero", "configurePreset": "silero", "configuration": "Release" },
+    { "name": "webrtc", "configurePreset": "webrtc", "configuration": "Release" },
+    { "name": "all", "configurePreset": "all", "configuration": "Release" },
+    { "name": "ci-headless", "configurePreset": "ci-headless" }
+  ],
+  "testPresets": [
+    {
+      "name": "default",
+      "configurePreset": "default",
+      "configuration": "Release",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "silero",
+      "configurePreset": "silero",
+      "configuration": "Release",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "webrtc",
+      "configurePreset": "webrtc",
+      "configuration": "Release",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "all",
+      "configurePreset": "all",
+      "configuration": "Release",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "ci-headless",
+      "configurePreset": "ci-headless",
+      "output": { "outputOnFailure": true }
+    }
+  ]
+}

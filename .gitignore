@@ -1,0 +1,40 @@
+# ---- 构建产物 ----
+/build/
+/build-*/
+/out/
+[Bb]in/
+[Oo]bj/
+*.exe
+*.dll
+*.lib
+*.pdb
+*.ilk
+*.exp
+
+# ---- CMake ----
+CMakeCache.txt
+CMakeFiles/
+CMakeUserPresets.json
+cmake_install.cmake
+
+# ---- Visual Studio ----
+.vs/
+*.vcxproj.user
+*.sln.docstates
+
+# ---- vcpkg ----
+/vcpkg_installed/
+
+# ---- 大体积运行期资产 (按需放置，不入库) ----
+# Silero VAD 模型与 onnxruntime DLL 体积较大，建议走发布流程而非 Git。
+models/*.onnx
+
+# WebRTC APM 预编译产物 (~50MB)，用 fetch_webrtc_apm.ps1 重新获取。
+third_party/webrtc-apm/extracted/
+third_party/webrtc-apm/*.zip
+
+# ---- 其他 ----
+.claude/
+*.log
+.DS_Store
+Thumbs.db

@@ -1,0 +1,29 @@
+# 统一编辑器基础设置。详细 C++ 格式见 .clang-format。
+root = true
+
+[*]
+charset = utf-8
+end_of_line = crlf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# 本项目自有 C++ 代码: 2 空格缩进 (Google), 100 列。
+[src/**.{h,cc}]
+indent_style = space
+indent_size = 2
+max_line_length = 100
+
+[*.{cmake,txt}]
+indent_style = space
+indent_size = 4
+
+[*.md]
+trim_trailing_whitespace = false
+
+# 开源库不约束。
+[third_party/**]
+charset = unset
+indent_style = unset
+indent_size = unset
+trim_trailing_whitespace = false
+insert_final_newline = unset

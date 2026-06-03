@@ -1,0 +1,3 @@
+# 开源库源码保持原有风格，禁止 clang-format 改写 (PRD §2.2 / §15.7)。
+DisableFormat: true
+SortIncludes: false
