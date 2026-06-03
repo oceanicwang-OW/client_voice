@@ -35,7 +35,7 @@ cmake --build build --config Release
 
 ```powershell
 cmake --list-presets                       # 列出全部
-cmake --preset all                          # 配置: 全功能 (Opus+Silero+WebRTC+GUI)
+cmake --preset all                          # 配置: 全功能 (Opus+Silero+WebRTC+TTS+GUI)
 cmake --build --preset all                  # 构建
 ctest --preset all                          # 跑验收用例
 ```
@@ -46,6 +46,7 @@ ctest --preset all                          # 跑验收用例
 | `opus` | + Opus | |
 | `silero` | + Opus + Silero VAD | 需 ONNX Runtime（自动下载）+ 模型 |
 | `webrtc` | + Opus + WebRTC APM | 需 `third_party/webrtc-apm/` 预编译产物 |
+| `tts` | + Opus + SAPI5 TTS | Windows 自带语音，无额外依赖/无模型 |
 | `all` | 全功能 | 完整产品 |
 | `ci-headless` | Ninja 无 GUI，仅测试 | 在 VS 开发者命令行中运行，供 CI |
 
@@ -58,10 +59,69 @@ ctest --preset all                          # 跑验收用例
 | `VOICE_ENABLE_OPUS` | OFF | 启用 libopus（关闭时 Loopback 传 PCM 直通） |
 | `VOICE_ENABLE_WEBRTC` | OFF | 启用 WebRTC APM（关闭时用直通 APM，**务必戴耳机**） |
 | `VOICE_ENABLE_SILERO` | OFF | 启用 Silero VAD（关闭时用能量 VAD 占位） |
+| `VOICE_ENABLE_TTS` | OFF | 启用 Windows SAPI5 文字转语音（`/say` 命令；关闭/非 Windows 时为 stub） |
 
 ```powershell
 cmake -G "Visual Studio 16 2019" -A x64 -B build -DVOICE_ENABLE_OPUS=ON .
 ```
+
+## 完整版本构建（实测步骤）
+
+预置 preset 把生成器写死成 `Visual Studio 16 2019`；**没装 VS2019** 时（例如只有
+VS2022 / VS 17/18 或 Build Tools），用下面这条 **Ninja + vcvars** 的路子，全功能且
+可用 `/say`。
+
+### 0) 前置
+
+- 任意带「C++ 桌面开发」工作负载的 Visual Studio（含 MSVC + Windows SDK；自带 Ninja）。
+- CMake ≥ 3.20；**联网**（Opus / ONNX Runtime / ImGui / GLFW 由 CMake `FetchContent`
+  自动下载源码构建，无需 vcpkg）。
+
+### 1) 准备被 `.gitignore` 排除的大文件（全功能必需）
+
+全新 clone 不含模型与 WebRTC 预编译库，需先获取：
+
+```powershell
+# Silero VAD 模型 -> models/silero_vad.onnx
+#   从 https://github.com/snakers4/silero-vad 取 silero_vad.onnx (v5, 512 样本@16k)
+#   放到 models/ 下 (CMake 会在构建时自动拷到 exe 同级 models/)
+
+# WebRTC APM 预编译库 (~50MB)
+powershell -ExecutionPolicy Bypass -File third_party\webrtc-apm\fetch_webrtc_apm.ps1
+# 成功后应存在 third_party\webrtc-apm\extracted\lib\audio_processing.lib
+```
+
+### 2) 进 MSVC 环境并配置 + 构建（全功能 + headless）
+
+在 **「x64 Native Tools Command Prompt for VS」** 里，或先 `call` 一次 vcvars：
+
+```powershell
+# 例: call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat"
+cmake -G Ninja -B build-all -DCMAKE_BUILD_TYPE=Release `
+    -DVOICE_ENABLE_OPUS=ON -DVOICE_ENABLE_SILERO=ON `
+    -DVOICE_ENABLE_WEBRTC=ON -DVOICE_ENABLE_TTS=ON `
+    -DVOICE_ENABLE_IMGUI=OFF
+cmake --build build-all
+```
+
+> `-DVOICE_ENABLE_IMGUI=OFF` 是关键：`/say` 是 **headless 控制台命令**，GUI 路径里
+> 没有它，且无显示环境会卡在开窗。要图形界面就去掉这行（但当前 GUI 暂无 `/say` 按钮）。
+> 若你**有 VS2019**，等价的一键写法是 `cmake --preset all` / `cmake --build --preset all`。
+
+### 3) 运行与自测
+
+```powershell
+.\build-all\bin\voice_client.exe        # onnxruntime.dll 与 models\ 已随构建自动部署
+ctest --test-dir build-all --output-on-failure
+```
+
+控制台命令：`/say <文字>` 朗读、直接打字回车=文本回显、`/mic` 开关麦、`/quit` 退出。
+
+> ⚠️ **务必戴耳机**测试 `/mic`：外放时扬声器回放会被麦克风重新采到，灵敏的 Silero
+> 会当成插话触发 barge-in 把回放掐断（表现为"听不到回放"）。
+
+排障小工具（手动运行，不入 ctest）：`build-all\bin\mic_level_monitor.exe`（看麦克风
+电平）、`build-all\bin\vad_monitor.exe [passthrough]`（实时看 VAD 概率与起止事件）。
 
 ## 依赖获取
 
@@ -102,6 +162,10 @@ cmake -G "Visual Studio 16 2019" -A x64 -B build -DVOICE_ENABLE_OPUS=ON .
   10ms 帧、render/capture 对齐），`-DVOICE_ENABLE_WEBRTC=ON` 启用，ChatController
   自动切换。用 M124 预编译产物（见 `third_party/webrtc-apm/`）链入 MSVC，避开
   Meson/clang 构建难题；`ac8_aec` 实测回授残余 **~0.7%（≈ −43dB）**。
+- ✅ **文字转语音（`/say`）**：`-DVOICE_ENABLE_TTS=ON`（或 `--preset tts`）启用
+  Windows SAPI5。控制台输入 `/say <文字>`：文本→SAPI 合成 16k/mono/int16 PCM→
+  走下行（Opus/直通编码→Loopback 延迟回传→解码→jitter→播放）。无额外依赖/无模型；
+  中文需系统装中文语音包。`tts_synthesize_smoke` 验证合成返回非空 PCM。
 - ✅ **M7 打磨**（AC-9/AC-10）：参数实时下发（含闭麦下文本路径的 Loopback 延迟），
   `ac9_param_realtime` 证明改句末静音阈值即改变断句；`src/` 通过规范自查
   （≤100 列、无 Tab、无尾空白、统一 `#pragma once`）。

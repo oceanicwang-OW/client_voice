@@ -17,6 +17,7 @@
 #include "codec.h"
 #include "message_log.h"
 #include "transport.h"
+#include "tts.h"
 #include "vad.h"
 
 namespace voice {
@@ -53,6 +54,7 @@ class ChatController {
 
   void OnTextSubmit(const std::string& text);  // 文本路径。
   void OnMicToggle(bool on);                    // 开/闭麦。
+  void OnSpeak(const std::string& text);  // TTS: 文本合成为语音走下行播放。
 
   // 测试入口: 把一段 16k/mono PCM 当作麦克风输入跑完整处理链路 (无需声卡)。
   void FeedAudioForTest(const Pcm16& pcm);
@@ -78,6 +80,7 @@ class ChatController {
   std::unique_ptr<OpusCodec> codec_;
   std::unique_ptr<LoopbackTransport> transport_;
   std::unique_ptr<AudioPlayback> playback_;
+  std::unique_ptr<ITextToSpeech> tts_;
 
   MessageLog log_;
   UiState ui_state_;

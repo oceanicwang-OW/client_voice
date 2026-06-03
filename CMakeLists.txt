@@ -34,6 +34,7 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 option(VOICE_ENABLE_OPUS    "Enable libopus codec (otherwise PCM passthrough)" OFF)
 option(VOICE_ENABLE_WEBRTC  "Enable WebRTC APM (otherwise passthrough APM)"    OFF)
 option(VOICE_ENABLE_SILERO  "Enable Silero VAD via ONNX Runtime"               OFF)
+option(VOICE_ENABLE_TTS     "Enable Windows SAPI5 text-to-speech (/say)"       OFF)
 option(VOICE_BUILD_TESTS    "Build test executables (AC verification)"         ON)
 
 # ----------------------------------------------------------------------------

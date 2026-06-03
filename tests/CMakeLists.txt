@@ -15,6 +15,16 @@ add_executable(audio_device_probe audio_device_probe.cc)
 target_link_libraries(audio_device_probe PRIVATE voice_core)
 add_test(NAME m2_device_probe COMMAND audio_device_probe)
 
+# 麦克风电平实时监视 (手动诊断, 不注册为 ctest 用例)。
+add_executable(mic_level_monitor mic_level_monitor.cc)
+target_link_libraries(mic_level_monitor PRIVATE voice_core)
+
+# 实时 VAD 探针 (手动诊断, 不注册为 ctest 用例)。模型路径编进去, 不依赖 CWD。
+add_executable(vad_monitor vad_monitor.cc)
+target_link_libraries(vad_monitor PRIVATE voice_core)
+target_compile_definitions(vad_monitor PRIVATE
+    VOICE_SILERO_MODEL_PATH="${CMAKE_SOURCE_DIR}/models/silero_vad.onnx")
+
 # M3: Opus 编解码完整性 (AC-5)。-DVOICE_ENABLE_OPUS=ON 时走真实 Opus。
 add_executable(ac5_opus_codec_test ac5_opus_codec_test.cc)
 target_link_libraries(ac5_opus_codec_test PRIVATE voice_core)
@@ -59,6 +69,14 @@ if(VOICE_PURE_BACKEND)
     add_test(NAME ac9_param_realtime COMMAND ac9_param_realtime_test)
 endif()
 
+# TTS 合成烟雾测试 (仅 -DVOICE_ENABLE_TTS=ON)。合成英文 "hello" 断言返回
+# 非空 PCM (英文音色几乎必装); 中文依赖系统中文语音包, 不在此断言。
+if(VOICE_ENABLE_TTS)
+    add_executable(tts_synthesize_smoke_test tts_synthesize_smoke_test.cc)
+    target_link_libraries(tts_synthesize_smoke_test PRIVATE voice_core)
+    add_test(NAME tts_synthesize_smoke COMMAND tts_synthesize_smoke_test)
+endif()
+
 # M4: Silero VAD 集成烟雾测试 (仅 -DVOICE_ENABLE_SILERO=ON)。
 # 加载真实 silero_vad.onnx 并推理，校验返回合法概率、静音判为低概率。
 if(VOICE_ENABLE_SILERO)
@@ -70,4 +88,13 @@ if(VOICE_ENABLE_SILERO)
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             $<TARGET_FILE:onnxruntime> $<TARGET_FILE_DIR:silero_vad_smoke_test>)
     add_test(NAME m4_silero_smoke COMMAND silero_vad_smoke_test)
+endif()
+
+# 所有用例统一从源码根运行: ChatController 按相对路径 "models/silero_vad.onnx"
+# 加载模型, Silero 构建下 Init() 找不到模型会 return false (上游严格化)。从源码
+# 根运行即可命中 models/; onnxruntime.dll 已随 exe 部署到 bin/, 不受工作目录影响。
+get_property(_voice_tests DIRECTORY PROPERTY TESTS)
+if(_voice_tests)
+    set_tests_properties(${_voice_tests} PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 endif()
